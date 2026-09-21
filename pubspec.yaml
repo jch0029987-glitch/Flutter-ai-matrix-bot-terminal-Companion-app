@@ -1,4 +1,4 @@
-name: pixel_tv_commander
+Name: pixel_tv_commander
 description: "A custom Android TV companion app for managing local server stacks via Tailscale."
 publish_to: 'none'
 
@@ -14,7 +14,8 @@ dependencies:
   http: ^1.2.0
   path_provider: ^2.1.2
   open_filex: ^4.4.0
-  xterm: ^3.3.0 # Added terminal emulator support
+  xterm: ^3.3.0
+  web_socket_channel: ^2.4.0 # Required for the live PTY WebSocket connection
 
 dev_dependencies:
   flutter_test:
