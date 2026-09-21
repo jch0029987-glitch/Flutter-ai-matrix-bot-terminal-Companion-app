@@ -41,14 +41,21 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          # Decode base64 keystore into android/app directory
+          # Ensure android/app directory exists
+          mkdir -p android/app
+
+          # Decode base64 keystore directly into android/app/
           echo "$SIGNING_KEYSTORE_BASE64" | base64 --decode > android/app/release-keystore.jks
 
-          # Create key.properties file for Gradle
-          echo "storeFile=release-keystore.jks" > android/key.properties
-          echo "storePassword=$STORE_PASSWORD" >> android/key.properties
-          echo "keyAlias=$KEY_ALIAS" >> android/key.properties
-          echo "keyPassword=$KEY_PASSWORD" >> android/key.properties
+          # Write key.properties explicitly into android/app/ where Gradle expects it
+          cat <<EOF > android/app/key.properties
+          storeFile=release-keystore.jks
+          storePassword=$STORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          EOF
+          
+          echo "✅ Keystore and key.properties configured successfully in android/app/."
 
       - name: Build Signed Release APK
         run: flutter build apk --release
