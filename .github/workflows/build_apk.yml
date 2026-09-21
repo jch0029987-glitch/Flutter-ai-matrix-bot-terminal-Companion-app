@@ -34,7 +34,23 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build Release APK
+      - name: Decode Keystore and Configure Signing
+        env:
+          SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          # Decode base64 keystore into android/app directory
+          echo "$SIGNING_KEYSTORE_BASE64" | base64 --decode > android/app/release-keystore.jks
+
+          # Create key.properties file for Gradle
+          echo "storeFile=release-keystore.jks" > android/key.properties
+          echo "storePassword=$STORE_PASSWORD" >> android/key.properties
+          echo "keyAlias=$KEY_ALIAS" >> android/key.properties
+          echo "keyPassword=$KEY_PASSWORD" >> android/key.properties
+
+      - name: Build Signed Release APK
         run: flutter build apk --release
 
       - name: Create GitHub Release & Upload APK
@@ -42,7 +58,7 @@ jobs:
         with:
           tag_name: ${{ github.event.inputs.tag_name }}
           name: "Pixel TV Commander ${{ github.event.inputs.tag_name }}"
-          body: "Automated Android TV build via GitHub Actions."
+          body: "Automated signed Android TV build via GitHub Actions."
           files: build/app/outputs/flutter-apk/app-release.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
