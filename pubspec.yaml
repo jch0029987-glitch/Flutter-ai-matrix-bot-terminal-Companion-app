@@ -14,16 +14,13 @@ dependencies:
   http: ^1.2.0
   path_provider: ^2.1.2
   open_filex: ^4.4.0
-  xterm2: ^5.2.0
+  xterm2: 5.0.0
   web_socket_channel: ^2.4.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
-
-dependency_overrides:
-  characters: ^1.4.0
 
 flutter:
   uses-material-design: true
