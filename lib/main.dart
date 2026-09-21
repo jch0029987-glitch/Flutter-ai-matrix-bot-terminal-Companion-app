@@ -53,7 +53,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.dispose();
   }
 
-  // Example function to send commands or prompt llama-server
   Future<void> _executeCommand(String command) async {
     if (command.trim().isEmpty) return;
 
@@ -63,8 +62,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _commandController.clear();
 
     try {
-      // Example hitting your phone's llama-server or a custom API endpoint
-      // Adjust port/path based on your active server stack (e.g. 8080)
       final response = await http.post(
         Uri.parse('http://100.64.152.108:8080/v1/chat/completions'),
         headers: {'Content-Type': 'application/json'},
@@ -99,7 +96,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         focusNode: _focusNode,
         onKeyEvent: (node, event) {
           if (event is KeyDownEvent) {
-            // Handle global keyboard typing if user isn't focused elsewhere
             if (event.logicalKey == LogicalKeyboardKey.enter) {
               _executeCommand(_commandController.text);
               return KeyEventResult.handled;
@@ -107,7 +103,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           }
           return KeyEventResult.ignored;
         },
-    );
         child: Padding(
           padding: const EdgeInsets.all(32.0),
           child: Column(
@@ -190,7 +185,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             // Command Input Row for Bluetooth Keyboard
                             Row(
                               children: [
-                                const Text("root@pixel:~$ ", style: TextStyle(color: Colors.green, fontFamily: 'monospace')),
+                                const Text("root@pixel:\$ ", style: TextStyle(color: Colors.green, fontFamily: 'monospace')),
                                 Expanded(
                                   child: TextField(
                                     controller: _commandController,
@@ -219,7 +214,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // Helper widget to build D-pad focusable TV buttons/cards
   Widget _buildActionCard(String title, VoidCallback onTap) {
     return SizedBox(
       width: double.infinity,
