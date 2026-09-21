@@ -1,4 +1,4 @@
-Name: Build and Release Android TV APK
+name: Build and Release Android TV APK
 
 on:
   workflow_dispatch:
