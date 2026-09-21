@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:open_filex/open_filex.dart';
+import 'package:xterm/xterm.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -32,31 +33,29 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  final FocusNode _focusNode = FocusNode();
+  // Professional xterm terminal instance
+  final Terminal _terminal = Terminal(maxLines: 1000);
+  
+  final FocusNode _commandFocusNode = FocusNode();
   final TextEditingController _commandController = TextEditingController();
   
   String _statusText = "Stack Status: Ready (Tailscale 100.64.152.108)";
+  String _serverIp = "100.64.152.108:8080";
   
-  // Dead-ass defaults to Remote mode
   bool _isKeyboardActive = false;
   String _activeInputSource = "Android TV Remote / D-Pad";
-  
-  final List<String> _consoleLogs = [
-    "[INFO] Initialized Pixel TV Commander",
-    "[INFO] Input system defaulted to Remote mode."
-  ];
 
   @override
   void initState() {
     super.initState();
-    
-    // Attach global hardware key listener
     HardwareKeyboard.instance.addHandler(_handleGlobalKey);
 
+    // Initial terminal welcome text
+    _terminal.write('\x1B[32m[INFO] Initialized Pixel TV Commander (xterm backend)\x1B[0m\r\n');
+    _terminal.write('\x1B[33m[INFO] Input system defaulted to Remote mode.\x1B[0m\r\n');
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      FocusScope.of(context).requestFocus(_focusNode);
-      
-      // Auto-check updates on boot
+      FocusScope.of(context).requestFocus(_commandFocusNode);
       _checkForUpdates().then((_) {
         if (_statusText.startsWith("Update Available")) {
           _downloadAndInstallUpdate();
@@ -68,12 +67,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void dispose() {
     HardwareKeyboard.instance.removeHandler(_handleGlobalKey);
-    _focusNode.dispose();
+    _commandFocusNode.dispose();
     _commandController.dispose();
     super.dispose();
   }
 
-  // Explicitly filters out remote D-pad / navigation keys, only switches on physical keys
   bool _handleGlobalKey(KeyEvent event) {
     final key = event.logicalKey;
 
@@ -99,20 +97,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
       });
     }
 
-    return false; // Pass event downstream normally
+    return false;
   }
 
   Future<void> _executeCommand(String command) async {
     if (command.trim().isEmpty) return;
 
-    setState(() {
-      _consoleLogs.add("root@pixel:~# $command");
-    });
+    _terminal.write('\x1B[36mroot@pixel:~# $command\x1B[0m\r\n');
     _commandController.clear();
 
     try {
       final response = await http.post(
-        Uri.parse('http://100.64.152.108:8080/v1/chat/completions'),
+        Uri.parse('http://$_serverIp/v1/chat/completions'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           "model": "local-model",
@@ -123,18 +119,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final reply = data['choices']?[0]?['message']?['content'] ?? "Command executed.";
-        setState(() {
-          _consoleLogs.add("[LLM] $reply");
-        });
+        _terminal.write('\x1B[32m[LLM] $reply\x1B[0m\r\n');
       } else {
-        setState(() {
-          _consoleLogs.add("[ERROR] Server returned status: ${response.statusCode}");
-        });
+        _terminal.write('\x1B[31m[ERROR] Server returned status: ${response.statusCode}\x1B[0m\r\n');
       }
     } catch (e) {
-      setState(() {
-        _consoleLogs.add("[LOG] Dispatched command locally / Network timeout: $e");
-      });
+      _terminal.write('\x1B[33m[LOG] Dispatched command locally / Network timeout: $e\x1B[0m\r\n');
     }
   }
 
@@ -187,18 +177,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
           final file = File(filePath);
           await file.writeAsBytes(apkResponse.bodyBytes);
 
-          setState(() {
-            _consoleLogs.add("[SUCCESS] Update downloaded. Launching installer...");
-          });
-
+          _terminal.write('\x1B[32m[SUCCESS] Update downloaded. Launching installer...\x1B[0m\r\n');
           await OpenFilex.open(filePath);
         }
       }
     } catch (e) {
-      setState(() {
-        _consoleLogs.add("[ERROR] Update execution failed: $e");
-      });
+      _terminal.write('\x1B[31m[ERROR] Update execution failed: $e\x1B[0m\r\n');
     }
+  }
+
+  void _openSettings() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => SettingsScreen(
+          currentIp: _serverIp,
+          onIpChanged: (newIp) {
+            setState(() {
+              _serverIp = newIp;
+              _statusText = "Stack Status: Updated IP ($newIp)";
+            });
+            _terminal.write('\x1B[35m[INFO] Server IP updated to $newIp\x1B[0m\r\n');
+          },
+        ),
+      ),
+    );
   }
 
   @override
@@ -256,7 +259,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Expanded(
               child: Row(
                 children: [
-                  // Left Column: Quick Actions with D-Pad focus traversal
+                  // Left Column: Quick Actions
                   Expanded(
                     flex: 1,
                     child: FocusTraversalGroup(
@@ -265,7 +268,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         mainAxisAlignment: MainAxisAlignment.start,
                         children: [
                           _buildActionCard("Ping Stack Status", () {
-                            setState(() => _consoleLogs.add("[INFO] Pinging Tailscale services..."));
+                            _terminal.write('\x1B[33m[INFO] Pinging Tailscale services...\x1B[0m\r\n');
                           }),
                           const SizedBox(height: 12),
                           _buildActionCard("Restart llama-server", () {
@@ -276,12 +279,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             _executeCommand("journalctl -u matrix-bot -n 20");
                           }),
                           const SizedBox(height: 12),
-                          _buildActionCard("Check for Updates", () {
-                            _checkForUpdates();
-                          }),
+                          _buildActionCard("Settings & Configuration", _openSettings),
                           const SizedBox(height: 12),
-                          _buildActionCard("Download & Apply Update", () {
-                            _downloadAndInstallUpdate();
+                          _buildActionCard("Check / Apply Updates", () {
+                            _checkForUpdates().then((_) => _downloadAndInstallUpdate());
                           }),
                         ],
                       ),
@@ -289,61 +290,59 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                   const SizedBox(width: 20),
 
-                  // Right Column: Terminal Console Output & Log Stream
+                  // Right Column: xterm Terminal View Container
                   Expanded(
                     flex: 2,
-                    child: Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.black54,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.grey.shade800),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Terminal Output & Logs',
-                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey),
-                          ),
-                          const Divider(color: Colors.grey),
-                          Expanded(
-                            child: ListView.builder(
-                              itemCount: _consoleLogs.length,
-                              itemBuilder: (context, index) {
-                                return Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 2.0),
-                                  child: Text(
-                                    _consoleLogs[index],
-                                    style: const TextStyle(fontFamily: 'monospace', fontSize: 13, color: Colors.lightGreenAccent),
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-
-                          // Command Input Row
-                          Row(
-                            children: [
-                              const Text("root@pixel:\$ ", style: TextStyle(color: Colors.green, fontFamily: 'monospace')),
-                              Expanded(
-                                child: TextField(
-                                  controller: _commandController,
-                                  focusNode: _focusNode,
-                                  autofocus: true,
-                                  style: const TextStyle(fontFamily: 'monospace', color: Colors.white),
-                                  decoration: const InputDecoration(
-                                    hintText: "Type command or prompt...",
-                                    hintStyle: TextStyle(color: Colors.grey),
-                                    border: InputBorder.none,
-                                  ),
-                                  onSubmitted: (value) => _executeCommand(value),
-                                ),
+                    child: Focus(
+                      child: Builder(
+                        builder: (context) {
+                          final bool isFocused = Focus.of(context).hasFocus;
+                          return Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.black54,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: isFocused ? Colors.cyanAccent : Colors.grey.shade800,
+                                width: isFocused ? 2.0 : 1.0,
                               ),
-                            ],
-                          )
-                        ],
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Terminal Output & Logs (xterm)',
+                                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey),
+                                ),
+                                const Divider(color: Colors.grey),
+                                Expanded(
+                                  child: TerminalView(_terminal),
+                                ),
+                                const SizedBox(height: 10),
+
+                                // Command Input Row
+                                Row(
+                                  children: [
+                                    const Text("root@pixel:\$ ", style: TextStyle(color: Colors.green, fontFamily: 'monospace')),
+                                    Expanded(
+                                      child: TextField(
+                                        controller: _commandController,
+                                        focusNode: _commandFocusNode,
+                                        style: const TextStyle(fontFamily: 'monospace', color: Colors.white),
+                                        decoration: const InputDecoration(
+                                          hintText: "Type command or prompt...",
+                                          hintStyle: TextStyle(color: Colors.grey),
+                                          border: InputBorder.none,
+                                        ),
+                                        onSubmitted: (value) => _executeCommand(value),
+                                      ),
+                                    ),
+                                  ],
+                                )
+                              ],
+                            ),
+                          );
+                        },
                       ),
                     ),
                   ),
@@ -356,7 +355,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // Action card styled with visual focus response compatible with older Flutter stables
   Widget _buildActionCard(String title, VoidCallback onTap) {
     return SizedBox(
       width: double.infinity,
@@ -387,6 +385,79 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+// Dedicated Settings Screen fully navigable via TV D-Pad
+class SettingsScreen extends StatefulWidget {
+  final String currentIp;
+  final ValueChanged<String> onIpChanged;
+
+  const SettingsScreen({super.key, required this.currentIp, required this.onIpChanged});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  late TextEditingController _ipController;
+
+  @override
+  void initState() {
+    super.initState();
+    _ipController = TextEditingController(text: widget.currentIp);
+  }
+
+  @override
+  void dispose() {
+    _ipController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Commander Settings'),
+        backgroundColor: Colors.black87,
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(32.0),
+        child: ListView(
+          children: [
+            const Text(
+              'Backend Configuration',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.cyanAccent),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _ipController,
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                labelText: 'Tailscale Server IP & Port',
+                labelStyle: const TextStyle(color: Colors.grey),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                focusedBorder: const OutlineInputBorder(
+                  borderSide: BorderSide(color: Colors.cyanAccent, width: 2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.cyan.shade800,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+              ),
+              onPressed: () {
+                widget.onIpChanged(_ipController.text.trim());
+                Navigator.pop(context);
+              },
+              child: const Text('Save & Apply Settings', style: TextStyle(fontSize: 16, color: Colors.white)),
+            ),
+          ],
+        ),
       ),
     );
   }
