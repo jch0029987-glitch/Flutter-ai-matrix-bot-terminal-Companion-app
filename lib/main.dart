@@ -1,125 +1,240 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 void main() {
-  runApp(const MyApp());
+  runApp(const PixelTvCommanderApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class PixelTvCommanderApp extends StatelessWidget {
+  const PixelTvCommanderApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-        useMaterial3: true,
-      ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      title: 'Pixel TV Commander',
+      theme: ThemeData.dark(useMaterial3: true),
+      home: const DashboardScreen(),
+      debugShowCheckedModeBanner: false,
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
+class DashboardScreen extends StatefulWidget {
+  const DashboardScreen({super.key});
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+class _DashboardScreenState extends State<DashboardScreen> {
+  final FocusNode _focusNode = FocusNode();
+  final TextEditingController _commandController = TextEditingController();
+  
+  String _statusText = "Stack Status: Ready (Tailscale 100.64.152.108)";
+  final List<String> _consoleLogs = [
+    "[INFO] Initialized Pixel TV Commander",
+    "[INFO] Ready for D-pad navigation or Bluetooth keyboard input"
+  ];
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      FocusScope.of(context).requestFocus(_focusNode);
     });
   }
 
   @override
+  void dispose() {
+    _focusNode.dispose();
+    _commandController.dispose();
+    super.dispose();
+  }
+
+  // Example function to send commands or prompt llama-server
+  Future<void> _executeCommand(String command) async {
+    if (command.trim().isEmpty) return;
+
+    setState(() {
+      _consoleLogs.add("root@pixel:~# $command");
+    });
+    _commandController.clear();
+
+    try {
+      // Example hitting your phone's llama-server or a custom API endpoint
+      // Adjust port/path based on your active server stack (e.g. 8080)
+      final response = await http.post(
+        Uri.parse('http://100.64.152.108:8080/v1/chat/completions'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          "model": "local-model",
+          "messages": [{"role": "user", "content": command}]
+        }),
+      ).timeout(const Duration(seconds: 5));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final reply = data['choices']?[0]?['message']?['content'] ?? "Command executed.";
+        setState(() {
+          _consoleLogs.add("[LLM] $reply");
+        });
+      } else {
+        setState(() {
+          _consoleLogs.add("[ERROR] Server returned status: ${response.statusCode}");
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _consoleLogs.add("[LOG] Dispatched command locally / Network timeout: $e");
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
     return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text(
-              'You have pushed the button this many times:',
-            ),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-          ],
+      body: Focus(
+        focusNode: _focusNode,
+        onKeyEvent: (node, event) {
+          if (event is KeyDownEvent) {
+            // Handle global keyboard typing if user isn't focused elsewhere
+            if (event.logicalKey == LogicalKeyboardKey.enter) {
+              _executeCommand(_commandController.text);
+              return KeyEventResult.handled;
+            }
+          }
+          return KeyEventResult.ignored;
+        },
+    );
+        child: Padding(
+          padding: const EdgeInsets.all(32.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header Row
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Pixel TV Commander',
+                    style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+                  Text(
+                    _statusText,
+                    style: const TextStyle(fontSize: 14, color: Colors.greenAccent),
+                  ),
+                ],
+              ),
+              const Divider(height: 30, color: Colors.grey),
+
+              // Main Workspace Split
+              Expanded(
+                child: Row(
+                  children: [
+                    // Left Column: Quick Actions / Cards (D-pad navigable)
+                    Expanded(
+                      flex: 1,
+                      child: Column(
+                        children: [
+                          _buildActionCard("Ping Stack Status", () {
+                            setState(() => _consoleLogs.add("[INFO] Pinging Tailscale services..."));
+                          }),
+                          const SizedBox(height: 12),
+                          _buildActionCard("Restart llama-server", () {
+                            _executeCommand("systemctl restart llama-server");
+                          }),
+                          const SizedBox(height: 12),
+                          _buildActionCard("Check Matrix Bot Logs", () {
+                            _executeCommand("journalctl -u matrix-bot -n 20");
+                          }),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 20),
+
+                    // Right Column: Terminal Console Output
+                    Expanded(
+                      flex: 2,
+                      child: Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.black54,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.grey.shade800),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Terminal Output & Logs',
+                              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey),
+                            ),
+                            const Divider(color: Colors.grey),
+                            Expanded(
+                              child: ListView.builder(
+                                itemCount: _consoleLogs.length,
+                                itemBuilder: (context, index) {
+                                  return Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 2.0),
+                                    child: Text(
+                                      _consoleLogs[index],
+                                      style: const TextStyle(fontFamily: 'monospace', fontSize: 13, color: Colors.lightGreenAccent),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            // Command Input Row for Bluetooth Keyboard
+                            Row(
+                              children: [
+                                const Text("root@pixel:~$ ", style: TextStyle(color: Colors.green, fontFamily: 'monospace')),
+                                Expanded(
+                                  child: TextField(
+                                    controller: _commandController,
+                                    style: const TextStyle(fontFamily: 'monospace', color: Colors.white),
+                                    decoration: const InputDecoration(
+                                      hintText: "Type command or prompt...",
+                                      hintStyle: TextStyle(color: Colors.grey),
+                                      border: InputBorder.none,
+                                    ),
+                                    onSubmitted: (value) => _executeCommand(value),
+                                  ),
+                                ),
+                              ],
+                            )
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
+    );
+  }
+
+  // Helper widget to build D-pad focusable TV buttons/cards
+  Widget _buildActionCard(String title, VoidCallback onTap) {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton(
+        style: OutlinedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+          alignment: Alignment.centerLeft,
+          side: BorderSide(color: Colors.grey.shade700),
+        ),
+        onPressed: onTap,
+        child: Text(
+          title,
+          style: const TextStyle(fontSize: 16, color: Colors.white),
+        ),
+      ),
     );
   }
 }
