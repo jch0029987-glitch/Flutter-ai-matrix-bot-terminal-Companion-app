@@ -36,19 +36,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final TextEditingController _commandController = TextEditingController();
   
   String _statusText = "Stack Status: Ready (Tailscale 100.64.152.108)";
-  bool _isKeyboardConnected = false;
+  
+  // True auto-detection fields
+  bool _isKeyboardActive = false;
+  String _activeInputSource = "Detecting Input Device...";
   
   final List<String> _consoleLogs = [
     "[INFO] Initialized Pixel TV Commander",
-    "[INFO] Scanning for input devices..."
+    "[INFO] Hardware input listener online."
   ];
 
   @override
   void initState() {
     super.initState();
+    
+    // Attach a true global hardware key listener
+    HardwareKeyboard.instance.addHandler(_handleGlobalKey);
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       FocusScope.of(context).requestFocus(_focusNode);
-      _checkInputDevices();
+      _evaluateCurrentDevices();
       
       // Auto-check updates on boot
       _checkForUpdates().then((_) {
@@ -61,45 +68,42 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_handleGlobalKey);
     _focusNode.dispose();
     _commandController.dispose();
     super.dispose();
   }
 
-  // Detect if a hardware keyboard is connected or actively typing
-  void _checkInputDevices() {
-    final connected = HardwareKeyboard.instance.logicalKeysPressed.any((key) =>
-      key.keyId >= LogicalKeyboardKey.keyA.keyId && key.keyId <= LogicalKeyboardKey.keyZ.keyId
+  void _evaluateCurrentDevices() {
+    final keysPressed = HardwareKeyboard.instance.logicalKeysPressed;
+    bool hasKeyboardSigns = keysPressed.any((key) => 
+      (key.keyId >= LogicalKeyboardKey.keyA.keyId && key.keyId <= LogicalKeyboardKey.keyZ.keyId) ||
+      key.keyId == LogicalKeyboardKey.enter.keyId
     );
+
     setState(() {
-      _isKeyboardConnected = connected;
+      _isKeyboardActive = hasKeyboardSigns;
+      _activeInputSource = hasKeyboardSigns ? "Physical Bluetooth Keyboard" : "Android TV Remote / D-Pad";
     });
   }
 
-  KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
-    // Whenever any key event fires, re-verify keyboard presence
-    _checkInputDevices();
+  // Intercepts hardware layer events globally across the engine
+  bool _handleGlobalKey(KeyEvent event) {
+    bool isKeyboardKey = event.logicalKey.keyId >= LogicalKeyboardKey.space.keyId && 
+                          event.logicalKey.keyId <= LogicalKeyboardKey.numpadDivide.keyId ||
+                          event.logicalKey == LogicalKeyboardKey.enter ||
+                          event.logicalKey == LogicalKeyboardKey.backspace;
 
-    if (event is KeyDownEvent) {
-      // Map Remote Select / Enter to command submission
-      if (event.logicalKey == LogicalKeyboardKey.enter ||
-          event.logicalKey == LogicalKeyboardKey.select) {
-        if (_commandController.text.trim().isNotEmpty) {
-          _executeCommand(_commandController.text);
-          return KeyEventResult.handled;
-        }
-      }
+    String detectedSource = isKeyboardKey ? "Physical Bluetooth Keyboard" : "Android TV Remote / D-Pad";
 
-      // If typing numbers/letters via a remote shortcut or keyboard, let it flow
-      if (!_isKeyboardConnected) {
-        // Remote fallback behavior: map directional pads or quick strings if needed
-        if (event.logicalKey == LogicalKeyboardKey.space) {
-          _commandController.text += " ";
-          return KeyEventResult.handled;
-        }
-      }
+    if (_activeInputSource != detectedSource || _isKeyboardActive != isKeyboardKey) {
+      setState(() {
+        _isKeyboardActive = isKeyboardKey;
+        _activeInputSource = detectedSource;
+      });
     }
-    return KeyEventResult.ignored;
+
+    return false; // Pass event downstream normally to TextField/focus nodes
   }
 
   Future<void> _executeCommand(String command) async {
@@ -207,13 +211,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
       body: Focus(
         focusNode: _focusNode,
         autofocus: true,
-        onKeyEvent: _handleKeyEvent,
         child: Padding(
           padding: const EdgeInsets.all(32.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header Row with Input Indicator
+              // Header Row with True Auto-Detection Status
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -223,15 +226,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                   Row(
                     children: [
-                      Icon(
-                        _isKeyboardConnected ? Icons.keyboard : Icons.settings_remote,
-                        color: _isKeyboardConnected ? Colors.cyanAccent : Colors.amberAccent,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        _isKeyboardConnected ? "Input: Keyboard Active" : "Input: Remote Mode",
-                        style: TextStyle(fontSize: 14, color: _isKeyboardConnected ? Colors.cyanAccent : Colors.amberAccent),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: _isKeyboardActive ? Colors.cyan.shade900 : Colors.amber.shade900,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: _isKeyboardActive ? Colors.cyanAccent : Colors.amberAccent),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              _isKeyboardActive ? Icons.keyboard : Icons.settings_remote,
+                              size: 16,
+                              color: Colors.white,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              "Active Input: $_activeInputSource",
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                            ),
+                          ],
+                        ),
                       ),
                       const SizedBox(width: 20),
                       Text(
@@ -279,7 +294,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                     const SizedBox(width: 20),
 
-                    // Right Column: Terminal Console Output & Remote Helper
+                    // Right Column: Terminal Console Output & Log Stream
                     Expanded(
                       flex: 2,
                       child: Container(
@@ -312,16 +327,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ),
                             ),
                             const SizedBox(height: 10),
-                            
-                            // If no keyboard is connected, show a hint for remote users
-                            if (!_isKeyboardConnected)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 8.0),
-                                child: Text(
-                                  "💡 Tip: Use your TV remote D-pad to navigate actions, or attach a Bluetooth keyboard for full terminal typing.",
-                                  style: TextStyle(fontSize: 12, color: Colors.amber.shade300),
-                                ),
-                              ),
 
                             // Command Input Row
                             Row(
@@ -330,6 +335,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 Expanded(
                                   child: TextField(
                                     controller: _commandController,
+                                    autofocus: true,
                                     style: const TextStyle(fontFamily: 'monospace', color: Colors.white),
                                     decoration: const InputDecoration(
                                       hintText: "Type command or prompt...",
