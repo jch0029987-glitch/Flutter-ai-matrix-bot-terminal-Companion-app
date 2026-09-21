@@ -37,25 +37,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
   
   String _statusText = "Stack Status: Ready (Tailscale 100.64.152.108)";
   
-  // True auto-detection fields
+  // Dead-ass defaults to Remote mode
   bool _isKeyboardActive = false;
-  String _activeInputSource = "Detecting Input Device...";
+  String _activeInputSource = "Android TV Remote / D-Pad";
   
   final List<String> _consoleLogs = [
     "[INFO] Initialized Pixel TV Commander",
-    "[INFO] Hardware input listener online."
+    "[INFO] Input system defaulted to Remote mode."
   ];
 
   @override
   void initState() {
     super.initState();
     
-    // Attach a true global hardware key listener
+    // Attach global hardware key listener
     HardwareKeyboard.instance.addHandler(_handleGlobalKey);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       FocusScope.of(context).requestFocus(_focusNode);
-      _evaluateCurrentDevices();
       
       // Auto-check updates on boot
       _checkForUpdates().then((_) {
@@ -74,36 +73,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.dispose();
   }
 
-  void _evaluateCurrentDevices() {
-    final keysPressed = HardwareKeyboard.instance.logicalKeysPressed;
-    bool hasKeyboardSigns = keysPressed.any((key) => 
-      (key.keyId >= LogicalKeyboardKey.keyA.keyId && key.keyId <= LogicalKeyboardKey.keyZ.keyId) ||
-      key.keyId == LogicalKeyboardKey.enter.keyId
-    );
-
-    setState(() {
-      _isKeyboardActive = hasKeyboardSigns;
-      _activeInputSource = hasKeyboardSigns ? "Physical Bluetooth Keyboard" : "Android TV Remote / D-Pad";
-    });
-  }
-
-  // Intercepts hardware layer events globally across the engine
+  // Switches to keyboard when typed on, stays there until user switches back (or stays remote by default)
   bool _handleGlobalKey(KeyEvent event) {
     bool isKeyboardKey = event.logicalKey.keyId >= LogicalKeyboardKey.space.keyId && 
                           event.logicalKey.keyId <= LogicalKeyboardKey.numpadDivide.keyId ||
                           event.logicalKey == LogicalKeyboardKey.enter ||
                           event.logicalKey == LogicalKeyboardKey.backspace;
 
-    String detectedSource = isKeyboardKey ? "Physical Bluetooth Keyboard" : "Android TV Remote / D-Pad";
-
-    if (_activeInputSource != detectedSource || _isKeyboardActive != isKeyboardKey) {
+    if (isKeyboardKey && !_isKeyboardActive) {
       setState(() {
-        _isKeyboardActive = isKeyboardKey;
-        _activeInputSource = detectedSource;
+        _isKeyboardActive = true;
+        _activeInputSource = "Physical Bluetooth Keyboard";
       });
     }
 
-    return false; // Pass event downstream normally to TextField/focus nodes
+    return false; // Pass event downstream normally
   }
 
   Future<void> _executeCommand(String command) async {
@@ -216,7 +200,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header Row with True Auto-Detection Status
+              // Header Row
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
