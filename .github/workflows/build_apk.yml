@@ -56,15 +56,15 @@ jobs:
           
           echo "✅ Keystore and key.properties configured successfully in android/app/."
 
-      - name: Build Signed Release APK
-        run: flutter build apk --release
+      - name: Build Optimized Signed Release APK
+        run: flutter build apk --release --target-platform android-arm --obfuscate --split-debug-info=./debug-symbols/
 
       - name: Create GitHub Release & Upload APK
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag_name }}
           name: "Pixel TV Commander ${{ github.event.inputs.tag_name }}"
-          body: "Automated signed Android TV build via GitHub Actions."
-          files: build/app/outputs/flutter-apk/app-release.apk
+          body: "Automated signed Android TV (armeabi-v7a) build via GitHub Actions."
+          files: build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
