@@ -1,4 +1,4 @@
-Name: pixel_tv_commander
+name: pixel_tv_commander
 description: "A custom Android TV companion app for managing local server stacks via Tailscale."
 publish_to: 'none'
 
