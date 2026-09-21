@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:xterm/xterm.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -39,11 +40,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final FocusNode _commandFocusNode = FocusNode();
   final TextEditingController _commandController = TextEditingController();
   
-  String _statusText = "Stack Status: Ready (Tailscale 100.64.152.108)";
-  String _serverIp = "100.64.152.108:8080";
+  String _statusText = "Stack Status: Connecting...";
+  String _serverIp = "100.64.152.108";
   
   bool _isKeyboardActive = false;
   String _activeInputSource = "Android TV Remote / D-Pad";
+
+  WebSocketChannel? _channel;
+  bool _isConnected = false;
 
   @override
   void initState() {
@@ -52,7 +56,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     // Initial terminal welcome text
     _terminal.write('\x1B[32m[INFO] Initialized Pixel TV Commander (xterm backend)\x1B[0m\r\n');
-    _terminal.write('\x1B[33m[INFO] Input system defaulted to Remote mode.\x1B[0m\r\n');
+    _terminal.write('\x1B[33m[INFO] Connecting to PTY WebSocket server on port 8081...\x1B[0m\r\n');
+    
+    _connectWebSocket();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       FocusScope.of(context).requestFocus(_commandFocusNode);
@@ -64,11 +70,51 @@ class _DashboardScreenState extends State<DashboardScreen> {
     });
   }
 
+  void _connectWebSocket() {
+    try {
+      _channel = WebSocketChannel.connect(Uri.parse('ws://$_serverIp:8081'));
+      
+      setState(() {
+        _isConnected = true;
+        _statusText = "Stack Status: Connected (WebSocket PTY)";
+      });
+
+      _terminal.write('\x1B[32m[SUCCESS] Connected to live PTY session!\x1B[0m\r\n');
+
+      _channel!.stream.listen(
+        (data) {
+          _terminal.write(data);
+        },
+        onError: (error) {
+          _terminal.write('\x1B[31m[ERROR] WebSocket error: $error\x1B[0m\r\n');
+          setState(() {
+            _isConnected = false;
+            _statusText = "Stack Status: Disconnected";
+          });
+        },
+        onDone: () {
+          _terminal.write('\x1B[33m[INFO] WebSocket session closed.\x1B[0m\r\n');
+          setState(() {
+            _isConnected = false;
+            _statusText = "Stack Status: Disconnected";
+          });
+        },
+      );
+    } catch (e) {
+      _terminal.write('\x1B[31m[ERROR] Connection failed: $e\x1B[0m\r\n');
+      setState(() {
+        _isConnected = false;
+        _statusText = "Stack Status: Connection Failed";
+      });
+    }
+  }
+
   @override
   void dispose() {
     HardwareKeyboard.instance.removeHandler(_handleGlobalKey);
     _commandFocusNode.dispose();
     _commandController.dispose();
+    _channel?.sink.close();
     super.dispose();
   }
 
@@ -100,31 +146,54 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return false;
   }
 
-  Future<void> _executeCommand(String command) async {
-    if (command.trim().isEmpty) return;
+  Future<void> _handleUserSubmission(String input) async {
+    if (input.trim().isEmpty) return;
 
-    _terminal.write('\x1B[36mroot@pixel:~# $command\x1B[0m\r\n');
-    _commandController.clear();
+    if (input.startsWith("llm:")) {
+      // Route to local Qwen LLM on port 8080
+      final prompt = input.substring(4).trim();
+      _commandController.clear();
+      await _queryLocalLLM(prompt);
+    } else {
+      // Route terminal commands over the WebSocket PTY pipe (Port 8081)
+      _terminal.write('\x1B[36m$input\x1B[0m\r\n');
+      if (_isConnected && _channel != null) {
+        _channel!.sink.add('$input\n');
+      } else {
+        _terminal.write('\x1B[31m[ERROR] Not connected to PTY server. Attempting reconnect...\x1B[0m\r\n');
+        _connectWebSocket();
+      }
+      _commandController.clear();
+    }
+  }
+
+  Future<void> _queryLocalLLM(String prompt) async {
+    if (prompt.trim().isEmpty) return;
+
+    _terminal.write('\x1B[35m[LLM Prompt] $prompt\x1B[0m\r\n');
 
     try {
       final response = await http.post(
-        Uri.parse('http://$_serverIp/v1/chat/completions'),
+        Uri.parse('http://$_serverIp:8080/v1/chat/completions'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           "model": "local-model",
-          "messages": [{"role": "user", "content": command}]
+          "messages": [
+            {"role": "system", "content": "You are a helpful coding assistant running locally on the device host."},
+            {"role": "user", "content": prompt}
+          ]
         }),
-      ).timeout(const Duration(seconds: 5));
+      ).timeout(const Duration(seconds: 30));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        final reply = data['choices']?[0]?['message']?['content'] ?? "Command executed.";
-        _terminal.write('\x1B[32m[LLM] $reply\x1B[0m\r\n');
+        final reply = data['choices']?[0]?['message']?['content'] ?? "No response generated.";
+        _terminal.write('\x1B[32m[LLM Response]:\x1B[0m\r\n$reply\r\n\r\n');
       } else {
-        _terminal.write('\x1B[31m[ERROR] Server returned status: ${response.statusCode}\x1B[0m\r\n');
+        _terminal.write('\x1B[31m[ERROR] LLM server returned status: ${response.statusCode}\x1B[0m\r\n');
       }
     } catch (e) {
-      _terminal.write('\x1B[33m[LOG] Dispatched command locally / Network timeout: $e\x1B[0m\r\n');
+      _terminal.write('\x1B[31m[ERROR] Failed to reach llama-server on port 8080: $e\x1B[0m\r\n');
     }
   }
 
@@ -195,9 +264,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           onIpChanged: (newIp) {
             setState(() {
               _serverIp = newIp;
-              _statusText = "Stack Status: Updated IP ($newIp)";
             });
-            _terminal.write('\x1B[35m[INFO] Server IP updated to $newIp\x1B[0m\r\n');
+            _terminal.write('\x1B[35m[INFO] Target IP updated to $newIp. Reconnecting WebSocket...\x1B[0m\r\n');
+            _channel?.sink.close();
+            _connectWebSocket();
           },
         ),
       ),
@@ -267,16 +337,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.start,
                         children: [
-                          _buildActionCard("Ping Stack Status", () {
-                            _terminal.write('\x1B[33m[INFO] Pinging Tailscale services...\x1B[0m\r\n');
+                          _buildActionCard("Reconnect Terminal", _connectWebSocket),
+                          const SizedBox(height: 12),
+                          _buildActionCard("Ask Local Qwen LLM", () {
+                            _queryLocalLLM("Provide a brief status check of the system.");
                           }),
                           const SizedBox(height: 12),
-                          _buildActionCard("Restart llama-server", () {
-                            _executeCommand("systemctl restart llama-server");
-                          }),
-                          const SizedBox(height: 12),
-                          _buildActionCard("Check Matrix Bot Logs", () {
-                            _executeCommand("journalctl -u matrix-bot -n 20");
+                          _buildActionCard("Check Bot Logs", () {
+                            _handleUserSubmission("tail -n 20 ~/pixelclaw/logs/bot.log");
                           }),
                           const SizedBox(height: 12),
                           _buildActionCard("Settings & Configuration", _openSettings),
@@ -311,7 +379,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 const Text(
-                                  'Terminal Output & Logs (xterm)',
+                                  'Interactive PTY Terminal (xterm) — Type `su` for root',
                                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey),
                                 ),
                                 const Divider(color: Colors.grey),
@@ -323,18 +391,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 // Command Input Row
                                 Row(
                                   children: [
-                                    const Text("root@pixel:\$ ", style: TextStyle(color: Colors.green, fontFamily: 'monospace')),
+                                    const Text("\$ ", style: TextStyle(color: Colors.green, fontFamily: 'monospace', fontWeight: FontWeight.bold)),
                                     Expanded(
                                       child: TextField(
                                         controller: _commandController,
                                         focusNode: _commandFocusNode,
                                         style: const TextStyle(fontFamily: 'monospace', color: Colors.white),
                                         decoration: const InputDecoration(
-                                          hintText: "Type command or prompt...",
+                                          hintText: "Type command (or 'llm: [prompt]' for AI)...",
                                           hintStyle: TextStyle(color: Colors.grey),
                                           border: InputBorder.none,
                                         ),
-                                        onSubmitted: (value) => _executeCommand(value),
+                                        onSubmitted: (value) => _handleUserSubmission(value),
                                       ),
                                     ),
                                   ],
@@ -428,7 +496,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: ListView(
           children: [
             const Text(
-              'Backend Configuration',
+              'Backend Tailscale Configuration',
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.cyanAccent),
             ),
             const SizedBox(height: 16),
@@ -436,7 +504,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               controller: _ipController,
               style: const TextStyle(color: Colors.white),
               decoration: InputDecoration(
-                labelText: 'Tailscale Server IP & Port',
+                labelText: 'Tailscale Server IP Address',
                 labelStyle: const TextStyle(color: Colors.grey),
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                 focusedBorder: const OutlineInputBorder(
