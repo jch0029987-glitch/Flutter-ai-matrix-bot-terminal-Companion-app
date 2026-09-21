@@ -1,0 +1,29 @@
+name: Generate Android File Structure
+
+on:
+  workflow_dispatch:
+
+jobs:
+  scaffold:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.19.x'
+          channel: 'stable'
+
+      - name: Run Flutter Create
+        run: |
+          flutter create --org com.jeremy --platforms android --project-name pixel_tv_commander .
+
+      - name: Commit and Push Android Structure
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: generate android folder structure via flutter create"
+          branch: main
