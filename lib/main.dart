@@ -46,6 +46,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       FocusScope.of(context).requestFocus(_focusNode);
+      
+      // Auto-check on boot
+      _checkForUpdates().then((_) {
+        if (_statusText.startsWith("Update Available")) {
+          _downloadAndInstallUpdate();
+        }
+      });
     });
   }
 
@@ -54,6 +61,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _focusNode.dispose();
     _commandController.dispose();
     super.dispose();
+  }
+
+  KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent) {
+      if (event.logicalKey == LogicalKeyboardKey.enter ||
+          event.logicalKey == LogicalKeyboardKey.select) {
+        if (_commandController.text.trim().isNotEmpty) {
+          _executeCommand(_commandController.text);
+          return KeyEventResult.handled;
+        }
+      }
+    }
+    return KeyEventResult.ignored;
   }
 
   Future<void> _executeCommand(String command) async {
@@ -134,7 +154,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     try {
       final response = await http.get(
-        Uri.parse('https://api.github.com/repos/YOUR_GITHUB_USERNAME/pixel_tv_commander/releases/latest'),
+        Uri.parse('https://api.github.com/repos/jch0029987-glitch/Flutter-ai-matrix-bot-terminal-Companion-app/releases/latest'),
         headers: {'Accept': 'application/vnd.github+json'},
       ).timeout(const Duration(seconds: 5));
 
@@ -194,15 +214,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Scaffold(
       body: Focus(
         focusNode: _focusNode,
-        onKeyEvent: (node, event) {
-          if (event is KeyDownEvent) {
-            if (event.logicalKey == LogicalKeyboardKey.enter) {
-              _executeCommand(_commandController.text);
-              return KeyEventResult.handled;
-            }
-          }
-          return KeyEventResult.ignored;
-        },
+        autofocus: true,
+        onKeyEvent: _handleKeyEvent,
         child: Padding(
           padding: const EdgeInsets.all(32.0),
           child: Column(
