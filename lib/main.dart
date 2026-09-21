@@ -356,7 +356,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // Action card styled with visual focus response for Android TV remotes
+  // Action card styled with visual focus response compatible with older Flutter stables
   Widget _buildActionCard(String title, VoidCallback onTap) {
     return SizedBox(
       width: double.infinity,
@@ -364,18 +364,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
         builder: (context) {
           return OutlinedButton(
             style: ButtonStyle(
-              padding: WidgetStateProperty.all(const EdgeInsets.symmetric(vertical: 20, horizontal: 16)),
+              padding: MaterialStateProperty.all(const EdgeInsets.symmetric(vertical: 20, horizontal: 16)),
               alignment: Alignment.centerLeft,
-              shape: WidgetStateProperty.all(RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-              side: WidgetStateProperty.resolveWith((states) {
-                if (states.contains(WidgetState.focused)) {
+              shape: MaterialStateProperty.all(RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+              side: MaterialStateProperty.resolveWith((states) {
+                if (states.contains(MaterialState.focused)) {
                   return const BorderSide(color: Colors.cyanAccent, width: 2.5);
                 }
                 return BorderSide(color: Colors.grey.shade700, width: 1.0);
               }),
-              backgroundColor: WidgetStateProperty.resolveWith((states) {
-                if (states.contains(WidgetState.focused)) {
-                  return Colors.cyan.withValues(alpha: 0.2);
+              backgroundColor: MaterialStateProperty.resolveWith((states) {
+                if (states.contains(MaterialState.focused)) {
+                  return Colors.cyan.withOpacity(0.2);
                 }
                 return Colors.transparent;
               }),
