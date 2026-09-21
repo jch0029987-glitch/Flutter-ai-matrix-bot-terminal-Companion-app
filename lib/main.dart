@@ -36,9 +36,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final TextEditingController _commandController = TextEditingController();
   
   String _statusText = "Stack Status: Ready (Tailscale 100.64.152.108)";
+  bool _isKeyboardConnected = false;
+  
   final List<String> _consoleLogs = [
     "[INFO] Initialized Pixel TV Commander",
-    "[INFO] Ready for D-pad navigation or Bluetooth keyboard input"
+    "[INFO] Scanning for input devices..."
   ];
 
   @override
@@ -46,8 +48,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       FocusScope.of(context).requestFocus(_focusNode);
+      _checkInputDevices();
       
-      // Auto-check on boot
+      // Auto-check updates on boot
       _checkForUpdates().then((_) {
         if (_statusText.startsWith("Update Available")) {
           _downloadAndInstallUpdate();
@@ -63,12 +66,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.dispose();
   }
 
+  // Detect if a hardware keyboard is connected or actively typing
+  void _checkInputDevices() {
+    final connected = HardwareKeyboard.instance.logicalKeysPressed.any((key) =>
+      key.keyId >= LogicalKeyboardKey.keyA.keyId && key.keyId <= LogicalKeyboardKey.keyZ.keyId
+    );
+    setState(() {
+      _isKeyboardConnected = connected;
+    });
+  }
+
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
+    // Whenever any key event fires, re-verify keyboard presence
+    _checkInputDevices();
+
     if (event is KeyDownEvent) {
+      // Map Remote Select / Enter to command submission
       if (event.logicalKey == LogicalKeyboardKey.enter ||
           event.logicalKey == LogicalKeyboardKey.select) {
         if (_commandController.text.trim().isNotEmpty) {
           _executeCommand(_commandController.text);
+          return KeyEventResult.handled;
+        }
+      }
+
+      // If typing numbers/letters via a remote shortcut or keyboard, let it flow
+      if (!_isKeyboardConnected) {
+        // Remote fallback behavior: map directional pads or quick strings if needed
+        if (event.logicalKey == LogicalKeyboardKey.space) {
+          _commandController.text += " ";
           return KeyEventResult.handled;
         }
       }
@@ -113,10 +139,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _checkForUpdates() async {
-    setState(() {
-      _consoleLogs.add("[INFO] Checking GitHub releases for updates...");
-    });
-
     try {
       final response = await http.get(
         Uri.parse('https://api.github.com/repos/jch0029987-glitch/Flutter-ai-matrix-bot-terminal-Companion-app/releases/latest'),
@@ -128,30 +150,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final latestTag = data['tag_name'] ?? 'v1.0.0';
 
         setState(() {
-          _consoleLogs.add("[UPDATE] Latest release found: $latestTag");
           if (latestTag != "v1.0.0+1") {
             _statusText = "Update Available: $latestTag";
           } else {
             _statusText = "App is up to date!";
           }
         });
-      } else {
-        setState(() {
-          _consoleLogs.add("[INFO] No public releases found or repo is private.");
-        });
       }
-    } catch (e) {
-      setState(() {
-        _consoleLogs.add("[ERROR] Update check failed: $e");
-      });
-    }
+    } catch (_) {}
   }
 
   Future<void> _downloadAndInstallUpdate() async {
-    setState(() {
-      _consoleLogs.add("[INFO] Fetching latest APK download link...");
-    });
-
     try {
       final response = await http.get(
         Uri.parse('https://api.github.com/repos/jch0029987-glitch/Flutter-ai-matrix-bot-terminal-Companion-app/releases/latest'),
@@ -166,19 +175,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
           orElse: () => null,
         );
 
-        if (apkAsset == null) {
-          setState(() {
-            _consoleLogs.add("[ERROR] No APK asset found in the latest release.");
-          });
-          return;
-        }
+        if (apkAsset == null) return;
 
         final downloadUrl = apkAsset['browser_download_url'];
-        setState(() {
-          _consoleLogs.add("[DOWNLOAD] Downloading APK from GitHub...");
-        });
-
         final apkResponse = await http.get(Uri.parse(downloadUrl));
+        
         if (apkResponse.statusCode == 200) {
           final dir = await getExternalStorageDirectory() ?? await getApplicationCacheDirectory();
           final filePath = '${dir.path}/update.apk';
@@ -187,19 +188,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           await file.writeAsBytes(apkResponse.bodyBytes);
 
           setState(() {
-            _consoleLogs.add("[SUCCESS] APK downloaded. Launching installer...");
+            _consoleLogs.add("[SUCCESS] Update downloaded. Launching installer...");
           });
 
-          final result = await OpenFilex.open(filePath);
-          if (result.type != ResultType.done) {
-            setState(() {
-              _consoleLogs.add("[ERROR] Failed to open installer: ${result.message}");
-            });
-          }
-        } else {
-          setState(() {
-            _consoleLogs.add("[ERROR] Failed to download APK binary.");
-          });
+          await OpenFilex.open(filePath);
         }
       }
     } catch (e) {
@@ -221,7 +213,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header Row
+              // Header Row with Input Indicator
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -229,9 +221,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     'Pixel TV Commander',
                     style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white),
                   ),
-                  Text(
-                    _statusText,
-                    style: const TextStyle(fontSize: 14, color: Colors.greenAccent),
+                  Row(
+                    children: [
+                      Icon(
+                        _isKeyboardConnected ? Icons.keyboard : Icons.settings_remote,
+                        color: _isKeyboardConnected ? Colors.cyanAccent : Colors.amberAccent,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        _isKeyboardConnected ? "Input: Keyboard Active" : "Input: Remote Mode",
+                        style: TextStyle(fontSize: 14, color: _isKeyboardConnected ? Colors.cyanAccent : Colors.amberAccent),
+                      ),
+                      const SizedBox(width: 20),
+                      Text(
+                        _statusText,
+                        style: const TextStyle(fontSize: 14, color: Colors.greenAccent),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -241,36 +248,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Expanded(
                 child: Row(
                   children: [
-                    // Left Column: Quick Actions / Cards (D-pad navigable)
+                    // Left Column: Quick Actions
                     Expanded(
                       flex: 1,
-                      child: Column(
-                        children: [
-                          _buildActionCard("Ping Stack Status", () {
-                            setState(() => _consoleLogs.add("[INFO] Pinging Tailscale services..."));
-                          }),
-                          const SizedBox(height: 12),
-                          _buildActionCard("Restart llama-server", () {
-                            _executeCommand("systemctl restart llama-server");
-                          }),
-                          const SizedBox(height: 12),
-                          _buildActionCard("Check Matrix Bot Logs", () {
-                            _executeCommand("journalctl -u matrix-bot -n 20");
-                          }),
-                          const SizedBox(height: 12),
-                          _buildActionCard("Check for Updates", () {
-                            _checkForUpdates();
-                          }),
-                          const SizedBox(height: 12),
-                          _buildActionCard("Download & Apply Update", () {
-                            _downloadAndInstallUpdate();
-                          }),
-                        ],
+                      child: FocusTraversalGroup(
+                        child: Column(
+                          children: [
+                            _buildActionCard("Ping Stack Status", () {
+                              setState(() => _consoleLogs.add("[INFO] Pinging Tailscale services..."));
+                            }),
+                            const SizedBox(height: 12),
+                            _buildActionCard("Restart llama-server", () {
+                              _executeCommand("systemctl restart llama-server");
+                            }),
+                            const SizedBox(height: 12),
+                            _buildActionCard("Check Matrix Bot Logs", () {
+                              _executeCommand("journalctl -u matrix-bot -n 20");
+                            }),
+                            const SizedBox(height: 12),
+                            _buildActionCard("Check for Updates", () {
+                              _checkForUpdates();
+                            }),
+                            const SizedBox(height: 12),
+                            _buildActionCard("Download & Apply Update", () {
+                              _downloadAndInstallUpdate();
+                            }),
+                          ],
+                        ),
                       ),
                     ),
                     const SizedBox(width: 20),
 
-                    // Right Column: Terminal Console Output
+                    // Right Column: Terminal Console Output & Remote Helper
                     Expanded(
                       flex: 2,
                       child: Container(
@@ -303,7 +312,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ),
                             ),
                             const SizedBox(height: 10),
-                            // Command Input Row for Bluetooth Keyboard
+                            
+                            // If no keyboard is connected, show a hint for remote users
+                            if (!_isKeyboardConnected)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 8.0),
+                                child: Text(
+                                  "💡 Tip: Use your TV remote D-pad to navigate actions, or attach a Bluetooth keyboard for full terminal typing.",
+                                  style: TextStyle(fontSize: 12, color: Colors.amber.shade300),
+                                ),
+                              ),
+
+                            // Command Input Row
                             Row(
                               children: [
                                 const Text("root@pixel:\$ ", style: TextStyle(color: Colors.green, fontFamily: 'monospace')),
