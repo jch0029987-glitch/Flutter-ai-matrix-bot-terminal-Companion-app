@@ -73,12 +73,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.dispose();
   }
 
-  // Switches to keyboard when typed on, stays there until user switches back (or stays remote by default)
+  // Explicitly filters out remote D-pad / navigation keys, only switches on physical keys
   bool _handleGlobalKey(KeyEvent event) {
-    bool isKeyboardKey = event.logicalKey.keyId >= LogicalKeyboardKey.space.keyId && 
-                          event.logicalKey.keyId <= LogicalKeyboardKey.numpadDivide.keyId ||
-                          event.logicalKey == LogicalKeyboardKey.enter ||
-                          event.logicalKey == LogicalKeyboardKey.backspace;
+    final key = event.logicalKey;
+
+    if (key == LogicalKeyboardKey.arrowUp ||
+        key == LogicalKeyboardKey.arrowDown ||
+        key == LogicalKeyboardKey.arrowLeft ||
+        key == LogicalKeyboardKey.arrowRight ||
+        key == LogicalKeyboardKey.select ||
+        key == LogicalKeyboardKey.mediaPlayPause ||
+        key == LogicalKeyboardKey.goBack) {
+      return false;
+    }
+
+    bool isKeyboardKey = (key.keyId >= LogicalKeyboardKey.keyA.keyId && key.keyId <= LogicalKeyboardKey.keyZ.keyId) ||
+                          (key.keyId >= LogicalKeyboardKey.digit0.keyId && key.keyId <= LogicalKeyboardKey.digit9.keyId) ||
+                          key.keyId == LogicalKeyboardKey.space ||
+                          key.keyId == LogicalKeyboardKey.backspace;
 
     if (isKeyboardKey && !_isKeyboardActive) {
       setState(() {
@@ -192,173 +204,189 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Focus(
-        focusNode: _focusNode,
-        autofocus: true,
-        child: Padding(
-          padding: const EdgeInsets.all(32.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Header Row
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Pixel TV Commander',
-                    style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white),
-                  ),
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: _isKeyboardActive ? Colors.cyan.shade900 : Colors.amber.shade900,
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: _isKeyboardActive ? Colors.cyanAccent : Colors.amberAccent),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              _isKeyboardActive ? Icons.keyboard : Icons.settings_remote,
-                              size: 16,
-                              color: Colors.white,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              "Active Input: $_activeInputSource",
-                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 20),
-                      Text(
-                        _statusText,
-                        style: const TextStyle(fontSize: 14, color: Colors.greenAccent),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              const Divider(height: 30, color: Colors.grey),
-
-              // Main Workspace Split
-              Expanded(
-                child: Row(
+      body: Padding(
+        padding: const EdgeInsets.all(32.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header Row
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Pixel TV Commander',
+                  style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+                Row(
                   children: [
-                    // Left Column: Quick Actions
-                    Expanded(
-                      flex: 1,
-                      child: FocusTraversalGroup(
-                        child: Column(
-                          children: [
-                            _buildActionCard("Ping Stack Status", () {
-                              setState(() => _consoleLogs.add("[INFO] Pinging Tailscale services..."));
-                            }),
-                            const SizedBox(height: 12),
-                            _buildActionCard("Restart llama-server", () {
-                              _executeCommand("systemctl restart llama-server");
-                            }),
-                            const SizedBox(height: 12),
-                            _buildActionCard("Check Matrix Bot Logs", () {
-                              _executeCommand("journalctl -u matrix-bot -n 20");
-                            }),
-                            const SizedBox(height: 12),
-                            _buildActionCard("Check for Updates", () {
-                              _checkForUpdates();
-                            }),
-                            const SizedBox(height: 12),
-                            _buildActionCard("Download & Apply Update", () {
-                              _downloadAndInstallUpdate();
-                            }),
-                          ],
-                        ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: _isKeyboardActive ? Colors.cyan.shade900 : Colors.amber.shade900,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: _isKeyboardActive ? Colors.cyanAccent : Colors.amberAccent),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            _isKeyboardActive ? Icons.keyboard : Icons.settings_remote,
+                            size: 16,
+                            color: Colors.white,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            "Active Input: $_activeInputSource",
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(width: 20),
-
-                    // Right Column: Terminal Console Output & Log Stream
-                    Expanded(
-                      flex: 2,
-                      child: Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.black54,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.grey.shade800),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Terminal Output & Logs',
-                              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey),
-                            ),
-                            const Divider(color: Colors.grey),
-                            Expanded(
-                              child: ListView.builder(
-                                itemCount: _consoleLogs.length,
-                                itemBuilder: (context, index) {
-                                  return Padding(
-                                    padding: const EdgeInsets.symmetric(vertical: 2.0),
-                                    child: Text(
-                                      _consoleLogs[index],
-                                      style: const TextStyle(fontFamily: 'monospace', fontSize: 13, color: Colors.lightGreenAccent),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-
-                            // Command Input Row
-                            Row(
-                              children: [
-                                const Text("root@pixel:\$ ", style: TextStyle(color: Colors.green, fontFamily: 'monospace')),
-                                Expanded(
-                                  child: TextField(
-                                    controller: _commandController,
-                                    autofocus: true,
-                                    style: const TextStyle(fontFamily: 'monospace', color: Colors.white),
-                                    decoration: const InputDecoration(
-                                      hintText: "Type command or prompt...",
-                                      hintStyle: TextStyle(color: Colors.grey),
-                                      border: InputBorder.none,
-                                    ),
-                                    onSubmitted: (value) => _executeCommand(value),
-                                  ),
-                                ),
-                              ],
-                            )
-                          ],
-                        ),
-                      ),
+                    Text(
+                      _statusText,
+                      style: const TextStyle(fontSize: 14, color: Colors.greenAccent),
                     ),
                   ],
                 ),
+              ],
+            ),
+            const Divider(height: 30, color: Colors.grey),
+
+            // Main Workspace Split
+            Expanded(
+              child: Row(
+                children: [
+                  // Left Column: Quick Actions with D-Pad focus traversal
+                  Expanded(
+                    flex: 1,
+                    child: FocusTraversalGroup(
+                      policy: OrderedTraversalPolicy(),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.start,
+                        children: [
+                          _buildActionCard("Ping Stack Status", () {
+                            setState(() => _consoleLogs.add("[INFO] Pinging Tailscale services..."));
+                          }),
+                          const SizedBox(height: 12),
+                          _buildActionCard("Restart llama-server", () {
+                            _executeCommand("systemctl restart llama-server");
+                          }),
+                          const SizedBox(height: 12),
+                          _buildActionCard("Check Matrix Bot Logs", () {
+                            _executeCommand("journalctl -u matrix-bot -n 20");
+                          }),
+                          const SizedBox(height: 12),
+                          _buildActionCard("Check for Updates", () {
+                            _checkForUpdates();
+                          }),
+                          const SizedBox(height: 12),
+                          _buildActionCard("Download & Apply Update", () {
+                            _downloadAndInstallUpdate();
+                          }),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 20),
+
+                  // Right Column: Terminal Console Output & Log Stream
+                  Expanded(
+                    flex: 2,
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.grey.shade800),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Terminal Output & Logs',
+                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey),
+                          ),
+                          const Divider(color: Colors.grey),
+                          Expanded(
+                            child: ListView.builder(
+                              itemCount: _consoleLogs.length,
+                              itemBuilder: (context, index) {
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 2.0),
+                                  child: Text(
+                                    _consoleLogs[index],
+                                    style: const TextStyle(fontFamily: 'monospace', fontSize: 13, color: Colors.lightGreenAccent),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+
+                          // Command Input Row
+                          Row(
+                            children: [
+                              const Text("root@pixel:\$ ", style: TextStyle(color: Colors.green, fontFamily: 'monospace')),
+                              Expanded(
+                                child: TextField(
+                                  controller: _commandController,
+                                  focusNode: _focusNode,
+                                  autofocus: true,
+                                  style: const TextStyle(fontFamily: 'monospace', color: Colors.white),
+                                  decoration: const InputDecoration(
+                                    hintText: "Type command or prompt...",
+                                    hintStyle: TextStyle(color: Colors.grey),
+                                    border: InputBorder.none,
+                                  ),
+                                  onSubmitted: (value) => _executeCommand(value),
+                                ),
+                              ),
+                            ],
+                          )
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 
+  // Action card styled with visual focus response for Android TV remotes
   Widget _buildActionCard(String title, VoidCallback onTap) {
     return SizedBox(
       width: double.infinity,
-      child: OutlinedButton(
-        style: OutlinedButton.styleFrom(
-          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
-          alignment: Alignment.centerLeft,
-          side: BorderSide(color: Colors.grey.shade700),
-        ),
-        onPressed: onTap,
-        child: Text(
-          title,
-          style: const TextStyle(fontSize: 16, color: Colors.white),
-        ),
+      child: Builder(
+        builder: (context) {
+          return OutlinedButton(
+            style: ButtonStyle(
+              padding: WidgetStateProperty.all(const EdgeInsets.symmetric(vertical: 20, horizontal: 16)),
+              alignment: Alignment.centerLeft,
+              shape: WidgetStateProperty.all(RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+              side: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.focused)) {
+                  return const BorderSide(color: Colors.cyanAccent, width: 2.5);
+                }
+                return BorderSide(color: Colors.grey.shade700, width: 1.0);
+              }),
+              backgroundColor: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.focused)) {
+                  return Colors.cyan.withValues(alpha: 0.2);
+                }
+                return Colors.transparent;
+              }),
+            ),
+            onPressed: onTap,
+            child: Text(
+              title,
+              style: const TextStyle(fontSize: 16, color: Colors.white),
+            ),
+          );
+        },
       ),
     );
   }
