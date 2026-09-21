@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
+import 'package:open_filex/open_filex.dart';
 import 'dart:convert';
+import 'dart:io';
 
 void main() {
   runApp(const PixelTvCommanderApp());
@@ -89,6 +92,103 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  Future<void> _checkForUpdates() async {
+    setState(() {
+      _consoleLogs.add("[INFO] Checking GitHub releases for updates...");
+    });
+
+    try {
+      final response = await http.get(
+        Uri.parse('https://api.github.com/repos/YOUR_GITHUB_USERNAME/pixel_tv_commander/releases/latest'),
+        headers: {'Accept': 'application/vnd.github+json'},
+      ).timeout(const Duration(seconds: 5));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final latestTag = data['tag_name'] ?? 'v1.0.0';
+
+        setState(() {
+          _consoleLogs.add("[UPDATE] Latest release found: $latestTag");
+          if (latestTag != "v1.0.0+1") {
+            _statusText = "Update Available: $latestTag";
+          } else {
+            _statusText = "App is up to date!";
+          }
+        });
+      } else {
+        setState(() {
+          _consoleLogs.add("[INFO] No public releases found or repo is private.");
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _consoleLogs.add("[ERROR] Update check failed: $e");
+      });
+    }
+  }
+
+  Future<void> _downloadAndInstallUpdate() async {
+    setState(() {
+      _consoleLogs.add("[INFO] Fetching latest APK download link...");
+    });
+
+    try {
+      final response = await http.get(
+        Uri.parse('https://api.github.com/repos/YOUR_GITHUB_USERNAME/pixel_tv_commander/releases/latest'),
+        headers: {'Accept': 'application/vnd.github+json'},
+      ).timeout(const Duration(seconds: 5));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final assets = data['assets'] as List?;
+        final apkAsset = assets?.firstWhere(
+          (asset) => asset['name'].toString().endsWith('.apk'),
+          orElse: () => null,
+        );
+
+        if (apkAsset == null) {
+          setState(() {
+            _consoleLogs.add("[ERROR] No APK asset found in the latest release.");
+          });
+          return;
+        }
+
+        final downloadUrl = apkAsset['browser_download_url'];
+        setState(() {
+          _consoleLogs.add("[DOWNLOAD] Downloading APK from GitHub...");
+        });
+
+        final apkResponse = await http.get(Uri.parse(downloadUrl));
+        if (apkResponse.statusCode == 200) {
+          final dir = await getExternalStorageDirectory() ?? await getApplicationCacheDirectory();
+          final filePath = '${dir.path}/update.apk';
+          
+          final file = File(filePath);
+          await file.writeAsBytes(apkResponse.bodyBytes);
+
+          setState(() {
+            _consoleLogs.add("[SUCCESS] APK downloaded. Launching installer...");
+          });
+
+          final result = await OpenFilex.open(filePath);
+          if (result.type != ResultType.done) {
+            setState(() {
+              _consoleLogs.add("[ERROR] Failed to open installer: ${result.message}");
+            });
+          }
+        } else {
+          setState(() {
+            _consoleLogs.add("[ERROR] Failed to download APK binary.");
+          });
+        }
+      }
+    } catch (e) {
+      setState(() {
+        _consoleLogs.add("[ERROR] Update execution failed: $e");
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -143,6 +243,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           const SizedBox(height: 12),
                           _buildActionCard("Check Matrix Bot Logs", () {
                             _executeCommand("journalctl -u matrix-bot -n 20");
+                          }),
+                          const SizedBox(height: 12),
+                          _buildActionCard("Check for Updates", () {
+                            _checkForUpdates();
+                          }),
+                          const SizedBox(height: 12),
+                          _buildActionCard("Download & Apply Update", () {
+                            _downloadAndInstallUpdate();
                           }),
                         ],
                       ),
