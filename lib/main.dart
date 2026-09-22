@@ -34,8 +34,9 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  // Professional xterm terminal instance
+  // Professional xterm terminal instance and layout controller
   final Terminal _terminal = Terminal(maxLines: 1000);
+  final TerminalController _terminalController = TerminalController();
   
   final FocusNode _commandFocusNode = FocusNode();
   final TextEditingController _commandController = TextEditingController();
@@ -81,9 +82,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       _terminal.write('\x1B[32m[SUCCESS] Connected to live PTY session!\x1B[0m\r\n');
 
+      // Pipe xterm keyboard/input bytes straight into the WebSocket PTY stream
+      _terminal.onOutput = (data) {
+        if (_isConnected && _channel != null) {
+          _channel!.sink.add(data);
+        }
+      };
+
+      // Transmit terminal resize dimensions so nano/vim/htop render properly full screen
+      _terminal.onResize = (width, height, pixelWidth, pixelHeight) {
+        if (_isConnected && _channel != null) {
+          final resizeMessage = jsonEncode({
+            "type": "resize",
+            "cols": width,
+            "rows": height,
+          });
+          _channel!.sink.add(resizeMessage);
+        }
+      };
+
       _channel!.stream.listen(
         (data) {
-          _terminal.write(data);
+          if (data is List<int>) {
+            _terminal.write(utf8.decode(data, allowMalformed: true));
+          } else if (data is String) {
+            _terminal.write(data);
+          }
         },
         onError: (error) {
           _terminal.write('\x1B[31m[ERROR] WebSocket error: $error\x1B[0m\r\n');
@@ -166,7 +190,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _commandController.clear();
     }
 
-    // --- CRITICAL FIX: Ensure terminal input never loses focus after submission ---
+    // Ensure terminal input never loses focus after submission
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         FocusScope.of(context).requestFocus(_commandFocusNode);
@@ -391,7 +415,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 ),
                                 const Divider(color: Colors.grey),
                                 Expanded(
-                                  child: TerminalView(_terminal),
+                                  child: TerminalView(
+                                    _terminal,
+                                    controller: _terminalController,
+                                    autofocus: true,
+                                  ),
                                 ),
                                 const SizedBox(height: 10),
 
