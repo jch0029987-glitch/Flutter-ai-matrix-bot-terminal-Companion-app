@@ -305,6 +305,45 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  Widget _buildControlButton(String label, String rawBytes) {
+    return Builder(
+      builder: (context) {
+        return OutlinedButton(
+          style: ButtonStyle(
+            padding: WidgetStateProperty.all(const EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
+            minimumSize: WidgetStateProperty.all(const Size(60, 36)),
+            side: WidgetStateProperty.resolveWith((states) {
+              if (states.contains(WidgetState.focused)) {
+                return const BorderSide(color: Colors.cyanAccent, width: 2.0);
+              }
+              return BorderSide(color: Colors.grey.shade700, width: 1.0);
+            }),
+            backgroundColor: WidgetStateProperty.resolveWith((states) {
+              if (states.contains(WidgetState.focused)) {
+                return Colors.cyan.withOpacity(0.3);
+              }
+              return Colors.grey.shade900;
+            }),
+            shape: WidgetStateProperty.all(RoundedRectangleBorder(borderRadius: BorderRadius.circular(6))),
+          ),
+          onPressed: () {
+            if (_isConnected && _channel != null) {
+              _channel!.sink.add(rawBytes);
+              _terminal.write('\x1B[33m[Sent $label]\x1B[0m\r\n');
+            } else {
+              _terminal.write('\x1B[31m[ERROR] Not connected to PTY.\x1B[0m\r\n');
+            }
+            FocusScope.of(context).requestFocus(_commandFocusNode);
+          },
+          child: Text(
+            label,
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -419,6 +458,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     _terminal,
                                     controller: _terminalController,
                                     autofocus: true,
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+
+                                // --- TV Control Quick Bar for Nano / Shortcuts ---
+                                SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  child: Row(
+                                    children: [
+                                      const Text("Shortcuts: ", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                                      const SizedBox(width: 8),
+                                      _buildControlButton("Ctrl+O (Save)", "\x0f"),
+                                      const SizedBox(width: 8),
+                                      _buildControlButton("Ctrl+X (Exit)", "\x18"),
+                                      const SizedBox(width: 8),
+                                      _buildControlButton("Ctrl+C (Cancel)", "\x03"),
+                                      const SizedBox(width: 8),
+                                      _buildControlButton("Esc", "\x1b"),
+                                      const SizedBox(width: 8),
+                                      _buildControlButton("Tab", "\t"),
+                                      const SizedBox(width: 8),
+                                      _buildControlButton("Up", "\x1b[A"),
+                                      const SizedBox(width: 8),
+                                      _buildControlButton("Down", "\x1b[B"),
+                                    ],
                                   ),
                                 ),
                                 const SizedBox(height: 10),
