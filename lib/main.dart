@@ -45,6 +45,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String _serverIp = "100.64.152.108";
   
   bool _isKeyboardActive = false;
+  bool _isFullScreenTerminal = false; // Automatically toggled by server alternate screen buffer
   String _activeInputSource = "Android TV Remote / D-Pad";
 
   WebSocketChannel? _channel;
@@ -103,10 +104,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       _channel!.stream.listen(
         (data) {
-          if (data is List<int>) {
-            _terminal.write(utf8.decode(data, allowMalformed: true));
-          } else if (data is String) {
+          if (data is String) {
+            // Check if server sent a JSON control frame (e.g., auto fullscreen toggle)
+            try {
+              final decoded = jsonDecode(data);
+              if (decoded is Map && decoded['type'] == 'fullscreen') {
+                setState(() {
+                  _isFullScreenTerminal = decoded['active'] == true;
+                });
+                return;
+              }
+            } catch (_) {
+              // Not JSON, fall through to write as standard terminal text
+            }
             _terminal.write(data);
+          } else if (data is List<int>) {
+            _terminal.write(utf8.decode(data, allowMalformed: true));
           }
         },
         onError: (error) {
@@ -348,89 +361,93 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: Padding(
-        padding: const EdgeInsets.all(32.0),
+        padding: const EdgeInsets.all(24.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header Row
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Pixel TV Commander',
-                  style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white),
-                ),
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: _isKeyboardActive ? Colors.cyan.shade900 : Colors.amber.shade900,
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: _isKeyboardActive ? Colors.cyanAccent : Colors.amberAccent),
+            // Header Row (Hidden automatically when in full-screen terminal mode)
+            if (!_isFullScreenTerminal) ...[
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Pixel TV Commander',
+                    style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: _isKeyboardActive ? Colors.cyan.shade900 : Colors.amber.shade900,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: _isKeyboardActive ? Colors.cyanAccent : Colors.amberAccent),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              _isKeyboardActive ? Icons.keyboard : Icons.settings_remote,
+                              size: 16,
+                              color: Colors.white,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              "Active Input: $_activeInputSource",
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                            ),
+                          ],
+                        ),
                       ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            _isKeyboardActive ? Icons.keyboard : Icons.settings_remote,
-                            size: 16,
-                            color: Colors.white,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            "Active Input: $_activeInputSource",
-                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
-                          ),
-                        ],
+                      const SizedBox(width: 20),
+                      Text(
+                        _statusText,
+                        style: const TextStyle(fontSize: 14, color: Colors.greenAccent),
                       ),
-                    ),
-                    const SizedBox(width: 20),
-                    Text(
-                      _statusText,
-                      style: const TextStyle(fontSize: 14, color: Colors.greenAccent),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            const Divider(height: 30, color: Colors.grey),
+                    ],
+                  ),
+                ],
+              ),
+              const Divider(height: 30, color: Colors.grey),
+            ],
 
             // Main Workspace Split
             Expanded(
               child: Row(
                 children: [
-                  // Left Column: Quick Actions
-                  Expanded(
-                    flex: 1,
-                    child: FocusTraversalGroup(
-                      policy: OrderedTraversalPolicy(),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.start,
-                        children: [
-                          _buildActionCard("Reconnect Terminal", _connectWebSocket),
-                          const SizedBox(height: 12),
-                          _buildActionCard("Ask Local Qwen LLM", () {
-                            _queryLocalLLM("Provide a brief status check of the system.");
-                          }),
-                          const SizedBox(height: 12),
-                          _buildActionCard("Check Bot Logs", () {
-                            _handleUserSubmission("tail -n 20 ~/pixelclaw/logs/bot.log");
-                          }),
-                          const SizedBox(height: 12),
-                          _buildActionCard("Settings & Configuration", _openSettings),
-                          const SizedBox(height: 12),
-                          _buildActionCard("Check / Apply Updates", () {
-                            _checkForUpdates().then((_) => _downloadAndInstallUpdate());
-                          }),
-                        ],
+                  // Left Column: Quick Actions (Hidden automatically when in full-screen terminal mode)
+                  if (!_isFullScreenTerminal) ...[
+                    Expanded(
+                      flex: 1,
+                      child: FocusTraversalGroup(
+                        policy: OrderedTraversalPolicy(),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.start,
+                          children: [
+                            _buildActionCard("Reconnect Terminal", _connectWebSocket),
+                            const SizedBox(height: 12),
+                            _buildActionCard("Ask Local Qwen LLM", () {
+                              _queryLocalLLM("Provide a brief status check of the system.");
+                            }),
+                            const SizedBox(height: 12),
+                            _buildActionCard("Check Bot Logs", () {
+                              _handleUserSubmission("tail -n 20 ~/pixelclaw/logs/bot.log");
+                            }),
+                            const SizedBox(height: 12),
+                            _buildActionCard("Settings & Configuration", _openSettings),
+                            const SizedBox(height: 12),
+                            _buildActionCard("Check / Apply Updates", () {
+                              _checkForUpdates().then((_) => _downloadAndInstallUpdate());
+                            }),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 20),
+                    const SizedBox(width: 20),
+                  ],
 
-                  // Right Column: xterm Terminal View Container
+                  // Right Column: xterm Terminal View Container (Expands to full width when _isFullScreenTerminal is true)
                   Expanded(
-                    flex: 2,
+                    flex: _isFullScreenTerminal ? 1 : 2,
                     child: Focus(
                       child: Builder(
                         builder: (context) {
@@ -448,9 +465,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text(
-                                  'Interactive PTY Terminal (xterm) — Type `su` for root',
-                                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.between,
+                                  children: [
+                                    Text(
+                                      _isFullScreenTerminal 
+                                        ? 'Interactive PTY Terminal (Full Screen Active)' 
+                                        : 'Interactive PTY Terminal (xterm) — Type `su` for root',
+                                      style: TextStyle(
+                                        fontSize: 14, 
+                                        fontWeight: FontWeight.bold, 
+                                        color: _isFullScreenTerminal ? Colors.cyanAccent : Colors.grey
+                                      ),
+                                    ),
+                                    // Manual toggle override button just in case
+                                    if (_isFullScreenTerminal)
+                                      TextButton(
+                                        onPressed: () => setState(() => _isFullScreenTerminal = false),
+                                        child: const Text("Exit Full Screen", style: TextStyle(color: Colors.amberAccent, fontSize: 12)),
+                                      ),
+                                  ],
                                 ),
                                 const Divider(color: Colors.grey),
                                 Expanded(
@@ -487,25 +521,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 ),
                                 const SizedBox(height: 10),
 
-                                // Command Input Row
-                                Row(
-                                  children: [
-                                    const Text("\$ ", style: TextStyle(color: Colors.green, fontFamily: 'monospace', fontWeight: FontWeight.bold)),
-                                    Expanded(
-                                      child: TextField(
-                                        controller: _commandController,
-                                        focusNode: _commandFocusNode,
-                                        style: const TextStyle(fontFamily: 'monospace', color: Colors.white),
-                                        decoration: const InputDecoration(
-                                          hintText: "Type command (or 'llm: [prompt]' for AI)...",
-                                          hintStyle: TextStyle(color: Colors.grey),
-                                          border: InputBorder.none,
+                                // Command Input Row (Hidden automatically when in full-screen terminal mode)
+                                if (!_isFullScreenTerminal) ...[
+                                  Row(
+                                    children: [
+                                      const Text("\$ ", style: TextStyle(color: Colors.green, fontFamily: 'monospace', fontWeight: FontWeight.bold)),
+                                      Expanded(
+                                        child: TextField(
+                                          controller: _commandController,
+                                          focusNode: _commandFocusNode,
+                                          style: const TextStyle(fontFamily: 'monospace', color: Colors.white),
+                                          decoration: const InputDecoration(
+                                            hintText: "Type command (or 'llm: [prompt]' for AI)...",
+                                            hintStyle: TextStyle(color: Colors.grey),
+                                            border: InputBorder.none,
+                                          ),
+                                          onSubmitted: (value) => _handleUserSubmission(value),
                                         ),
-                                        onSubmitted: (value) => _handleUserSubmission(value),
                                       ),
-                                    ),
-                                  ],
-                                )
+                                    ],
+                                  ),
+                                ],
                               ],
                             ),
                           );
