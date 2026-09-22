@@ -191,6 +191,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final prompt = input.substring(4).trim();
       _commandController.clear();
       await _queryLocalLLM(prompt);
+    } else if (input.toLowerCase().startsWith("pixelclaw:")) {
+      // Route to Matrix Bot handler
+      final command = input.substring(10).trim();
+      _commandController.clear();
+      await _queryPixelclaw(command);
     } else {
       // Route terminal commands over the WebSocket PTY pipe (Port 8081)
       _terminal.write('\x1B[36m$input\x1B[0m\r\n');
@@ -238,6 +243,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     } catch (e) {
       _terminal.write('\x1B[31m[ERROR] Failed to reach llama-server on port 8080: $e\x1B[0m\r\n');
+    }
+  }
+
+  Future<void> _queryPixelclaw(String command) async {
+    if (command.trim().isEmpty) return;
+
+    _terminal.write('\x1B[35m[Pixelclaw Command] $command\x1B[0m\r\n');
+
+    // Dispatches the command directly through the active PTY stream to your pixelclaw environment
+    final fullCommand = "python3 ~/pixelclaw/bot.py --command \"$command\"";
+    if (_isConnected && _channel != null) {
+      _channel!.sink.add('$fullCommand\n');
+    } else {
+      _terminal.write('\x1B[31m[ERROR] Not connected to PTY server to dispatch Pixelclaw command.\x1B[0m\r\n');
+      _connectWebSocket();
     }
   }
 
@@ -532,7 +552,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                           focusNode: _commandFocusNode,
                                           style: const TextStyle(fontFamily: 'monospace', color: Colors.white),
                                           decoration: const InputDecoration(
-                                            hintText: "Type command (or 'llm: [prompt]' for AI)...",
+                                            hintText: "Type command ('llm: [...]' or 'Pixelclaw: [...]')...",
                                             hintStyle: TextStyle(color: Colors.grey),
                                             border: InputBorder.none,
                                           ),
