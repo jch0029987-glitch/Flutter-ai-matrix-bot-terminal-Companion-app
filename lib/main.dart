@@ -74,7 +74,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   void _connectWebSocket() {
     try {
-      _channel = WebSocketChannel.connect(Uri.parse('ws://$_serverIp:8081'));
+      _channel = WebSocketChannel.connect(Uri.parse('ws://$_serverIp:8081/ws'));
       
       setState(() {
         _isConnected = true;
@@ -192,10 +192,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _commandController.clear();
       await _queryLocalLLM(prompt);
     } else if (input.toLowerCase().startsWith("pixelclaw:")) {
-      // Route to Matrix Bot handler
-      final command = input.substring(10).trim();
+      // Route to Matrix Bot handler via terminal server API
       _commandController.clear();
-      await _queryPixelclaw(command);
+      await _queryPixelclaw(input);
     } else {
       // Route terminal commands over the WebSocket PTY pipe (Port 8081)
       _terminal.write('\x1B[36m$input\x1B[0m\r\n');
@@ -251,13 +250,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     _terminal.write('\x1B[35m[Pixelclaw Command] $command\x1B[0m\r\n');
 
-    // Dispatches the command directly through the active PTY stream to your pixelclaw environment
-    final fullCommand = "python3 ~/pixelclaw/bot.py --command \"$command\"";
-    if (_isConnected && _channel != null) {
-      _channel!.sink.add('$fullCommand\n');
-    } else {
-      _terminal.write('\x1B[31m[ERROR] Not connected to PTY server to dispatch Pixelclaw command.\x1B[0m\r\n');
-      _connectWebSocket();
+    try {
+      final response = await http.post(
+        Uri.parse('http://$_serverIp:8081/api/command'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({"command": command}),
+      ).timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        _terminal.write('\x1B[32m[Success] Pixelclaw command dispatched via terminal server.\x1B[0m\r\n');
+      } else {
+        _terminal.write('\x1B[31m[ERROR] Server returned status: ${response.statusCode}\x1B[0m\r\n');
+      }
+    } catch (e) {
+      _terminal.write('\x1B[31m[ERROR] Failed to reach terminal server API: $e\x1B[0m\r\n');
     }
   }
 
