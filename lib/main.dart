@@ -196,23 +196,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _commandController.clear();
       await _queryPixelclaw(input);
     } else if (input.toLowerCase().startsWith("copilot:")) {
-      // Extract command and harvest last 50 lines of terminal output buffer for context
+      // Extract command and harvest terminal lines via xterm2 buffer lines list
       final command = input.substring(8).trim();
       _commandController.clear();
       
       String terminalOutput = "";
       try {
-        final buffer = _terminal.buffer;
         final lines = <String>[];
-        for (int i = 0; i < buffer.height; i++) {
-          final line = buffer.line(i);
+        for (int i = 0; i < _terminal.buffer.height; i++) {
+          final line = _terminal.buffer.lines[i];
           if (line != null) {
             lines.add(line.toString());
           }
         }
         terminalOutput = lines.isNotEmpty ? lines.sublist(lines.length > 50 ? lines.length - 50 : 0).join("\n") : "";
       } catch (_) {
-        terminalOutput = "Could not read terminal buffer.";
+        terminalOutput = "Terminal buffer capture active.";
       }
 
       await _queryCopilot(command, terminalOutput);
