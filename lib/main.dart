@@ -195,6 +195,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
       // Route to Matrix Bot handler via terminal server API
       _commandController.clear();
       await _queryPixelclaw(input);
+    } else if (input.toLowerCase().startsWith("copilot:")) {
+      // Extract command and harvest last 50 lines of terminal output buffer for context
+      final command = input.substring(8).trim();
+      _commandController.clear();
+      
+      String terminalOutput = "";
+      try {
+        final buffer = _terminal.buffer;
+        final lines = <String>[];
+        for (int i = 0; i < buffer.height; i++) {
+          final line = buffer.line(i);
+          if (line != null) {
+            lines.add(line.toString());
+          }
+        }
+        terminalOutput = lines.isNotEmpty ? lines.sublist(lines.length > 50 ? lines.length - 50 : 0).join("\n") : "";
+      } catch (_) {
+        terminalOutput = "Could not read terminal buffer.";
+      }
+
+      await _queryCopilot(command, terminalOutput);
     } else {
       // Route terminal commands over the WebSocket PTY pipe (Port 8081)
       _terminal.write('\x1B[36m$input\x1B[0m\r\n');
@@ -264,6 +285,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     } catch (e) {
       _terminal.write('\x1B[31m[ERROR] Failed to reach terminal server API: $e\x1B[0m\r\n');
+    }
+  }
+
+  Future<void> _queryCopilot(String command, String terminalContext) async {
+    _terminal.write('\x1B[35m[Copilot Analyzing Buffer] $command\x1B[0m\r\n');
+
+    try {
+      final response = await http.post(
+        Uri.parse('http://$_serverIp:8081/copilot'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          "prompt": command,
+          "context": {
+            "terminal_buffer": terminalContext,
+            "platform": "Android TV / Linux Host",
+            "shell": "bash",
+          }
+        }),
+      ).timeout(const Duration(seconds: 45));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final reply = data['response'] ?? data['reply'] ?? data['suggestion'] ?? response.body;
+        _terminal.write('\x1B[32m[Copilot Solution]:\x1B[0m\r\n$reply\r\n\r\n');
+      } else {
+        _terminal.write('\x1B[31m[ERROR] Copilot endpoint returned status: ${response.statusCode}\x1B[0m\r\n');
+      }
+    } catch (e) {
+      _terminal.write('\x1B[31m[ERROR] Failed to reach /copilot on port 8081: $e\x1B[0m\r\n');
     }
   }
 
@@ -497,7 +547,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     Text(
                                       _isFullScreenTerminal 
                                         ? 'Interactive PTY Terminal (Full Screen Active)' 
-                                        : 'Interactive PTY Terminal (xterm) — Type `su` for root',
+                                        : 'Interactive PTY Terminal — Type `copilot: [query]` for smart fixes',
                                       style: TextStyle(
                                         fontSize: 14, 
                                         fontWeight: FontWeight.bold, 
@@ -558,7 +608,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                           focusNode: _commandFocusNode,
                                           style: const TextStyle(fontFamily: 'monospace', color: Colors.white),
                                           decoration: const InputDecoration(
-                                            hintText: "Type command ('llm: [...]' or 'Pixelclaw: [...]')...",
+                                            hintText: "Type command ('llm:', 'Pixelclaw:', or 'copilot:')...",
                                             hintStyle: TextStyle(color: Colors.grey),
                                             border: InputBorder.none,
                                           ),
